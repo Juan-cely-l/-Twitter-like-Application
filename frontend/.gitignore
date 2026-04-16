@@ -1,0 +1,13 @@
+# Frontend dependencies
+node_modules/
+
+# Vite / React build output
+dist/
+dist-ssr/
+.vite/
+
+# Frontend test/tooling output
+coverage/
+.nyc_output/
+.eslintcache
+*.tsbuildinfo
