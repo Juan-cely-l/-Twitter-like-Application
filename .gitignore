@@ -22,6 +22,11 @@ $RECYCLE.BIN/
 .project
 .settings/
 
+# Local agent/workspace instructions
+AGENTS.md
+.codex
+.codex/
+
 # Logs
 logs/
 **/logs/
@@ -47,6 +52,7 @@ temp/
 
 # Local environment and secrets
 .env
+.env.*
 .env.local
 .env.*.local
 *.env
@@ -57,3 +63,4 @@ temp/
 
 # Keep sample envs versioned
 !.env.example
+!.env.*.example
