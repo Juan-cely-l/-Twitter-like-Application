@@ -1,26 +1,30 @@
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
 
 spring:
   datasource:
-    url: jdbc:h2:mem:twitterdb
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    url: ${SPRING_DATASOURCE_URL:jdbc:h2:mem:twitterdb}
+    driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:org.h2.Driver}
+    username: ${SPRING_DATASOURCE_USERNAME:sa}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
   h2:
     console:
       enabled: true
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
     show-sql: true
 
   security:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: https://dev-evyrhl30mk03e5xh.us.auth0.com/
-          audiences: https://twitter-like-api
+          issuer-uri: ${AUTH0_ISSUER_URI:https://dev-evyrhl30mk03e5xh.us.auth0.com/}
+          audiences: ${AUTH0_AUDIENCE:https://twitter-like-api}
+
+app:
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
 
 springdoc:
   swagger-ui:
