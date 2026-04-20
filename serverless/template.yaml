@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless microservices for the Twitter-like application.
+
+Parameters:
+  Auth0Issuer:
+    Type: String
+    Description: Auth0 issuer URI, including the trailing slash.
+    Default: https://your-tenant.us.auth0.com/
+  Auth0Audience:
+    Type: String
+    Description: Auth0 API audience expected by API Gateway.
+    Default: https://twitter-like-api
+  AllowedCorsOrigin:
+    Type: String
+    Description: Browser origin allowed to call the API, for example the S3 or CloudFront frontend URL.
+    Default: http://localhost:5173
+  Auth0ClaimsNamespace:
+    Type: String
+    Description: Namespace used by Auth0 custom profile claims.
+    Default: https://twitter-like-app.example.com
+
+Globals:
+  Function:
+    Runtime: java21
+    Architectures:
+      - x86_64
+    MemorySize: 512
+    Timeout: 20
+    Environment:
+      Variables:
+        POSTS_TABLE_NAME: !Ref PostsTable
+        AUTH0_CLAIMS_NAMESPACE: !Ref Auth0ClaimsNamespace
+
+Resources:
+  TwitterHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref AllowedCorsOrigin
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        MaxAge: 600
+      Auth:
+        Authorizers:
+          Auth0Authorizer:
+            JwtConfiguration:
+              issuer: !Ref Auth0Issuer
+              audience:
+                - !Ref Auth0Audience
+            IdentitySource: "$request.header.Authorization"
+
+  PostsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: streamId
+          AttributeType: S
+        - AttributeName: postKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: streamId
+          KeyType: HASH
+        - AttributeName: postKey
+          KeyType: RANGE
+
+  UserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: user-service/target/user-service-1.0.0-aws.jar
+      Handler: edu.eci.co.users.UserHandler::handleRequest
+      Role: arn:aws:iam::803761177923:role/service-role/AWSLambdaBasicExecutionRole
+      Events:
+        MeApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref TwitterHttpApi
+            Path: /api/me
+            Method: GET
+            Auth:
+              Authorizer: Auth0Authorizer
+              AuthorizationScopes:
+                - read:profile
+
+  CreatePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: post-service/target/post-service-1.0.0-aws.jar
+      Handler: edu.eci.co.posts.CreatePostHandler::handleRequest
+      Role: arn:aws:iam::803761177923:role/service-role/AWSLambdaBasicExecutionRole
+      Events:
+        CreatePostApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref TwitterHttpApi
+            Path: /api/posts
+            Method: POST
+            Auth:
+              Authorizer: Auth0Authorizer
+              AuthorizationScopes:
+                - write:posts
+
+  StreamFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: stream-service/target/stream-service-1.0.0-aws.jar
+      Handler: edu.eci.co.stream.GetStreamHandler::handleRequest
+      Role: arn:aws:iam::803761177923:role/service-role/AWSLambdaBasicExecutionRole
+      Events:
+        GetPostsApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref TwitterHttpApi
+            Path: /api/posts
+            Method: GET
+        GetStreamApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref TwitterHttpApi
+            Path: /api/stream
+            Method: GET
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway base URL for the serverless backend.
+    Value: !Sub "https://${TwitterHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  PostsTableName:
+    Description: DynamoDB table used by the posts and stream services.
+    Value: !Ref PostsTable

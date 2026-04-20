@@ -1,0 +1,12 @@
+# Maven build output
+target/
+**/target/
+dependency-reduced-pom.xml
+
+# AWS SAM build output
+.aws-sam/
+
+# Local environment files
+.env
+.env.*
+!.env.example

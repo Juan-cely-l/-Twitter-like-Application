@@ -1,87 +1,265 @@
 # Twitter-like Application
 
-A simplified Twitter-like application where authenticated users can publish posts (max 140 characters) into a public feed.
+A simplified Twitter-like application where authenticated users can publish short posts, up to 140 characters, into a single public feed.
 
-The repository is organized as a monorepo and currently focuses on the **Spring Boot monolith phase** with a **React + Vite frontend**, fully secured with **Auth0**.
+The project is organized as a monorepo with two backend phases:
 
-## Current Architecture
+- A Spring Boot monolith used as the initial implementation.
+- A serverless AWS migration that splits the monolith into independent Java Lambda microservices.
 
-- **Backend:** Spring Boot 3.4 (Java 21), JPA, Security, OAuth2 Resource Server, OpenAPI
-- **Frontend:** React 19 + Vite 8 + Auth0 SPA SDK
-- **Default database for demo/dev:** H2 in-memory
-- **Optional database profile:** PostgreSQL via Docker Compose profile
-- **Container orchestration:** Docker Compose (root-level)
+## Architecture Overview
+
+The application starts as a Spring Boot monolith and evolves into serverless microservices on AWS, as required by the assignment.
+
+```text
+Local and monolith phase
+
+React + Vite SPA
+   |
+   v
+Spring Boot monolith
+   |
+   |-- GET  /api/posts
+   |-- GET  /api/stream
+   |-- POST /api/posts
+   |-- GET  /api/me
+   |
+   v
+H2 or PostgreSQL
+```
+
+```text
+Serverless AWS phase
+
+React + Vite SPA hosted on S3 or CloudFront
+   |
+   v
+Amazon API Gateway HTTP API
+   |
+   |-- GET  /api/me      -> user-service Lambda
+   |-- POST /api/posts   -> post-service Lambda
+   |-- GET  /api/posts   -> stream-service Lambda
+   |-- GET  /api/stream  -> stream-service Lambda
+   |
+   v
+Amazon DynamoDB Posts table
+```
+
+Auth0 is the identity provider for both phases. The frontend obtains Auth0 access tokens, and protected backend endpoints require JWT Bearer tokens with the expected audience and scopes.
+
+## Domain Model
+
+The assignment mentions `User`, `Post`, and `Stream`. The project models them as follows:
+
+| Concept | Implementation |
+| --- | --- |
+| User | Managed externally by Auth0. The backend reads the authenticated user identity from JWT claims and does not store credentials. |
+| Post | Application-owned data. The monolith persists posts with JPA; the serverless phase stores posts in DynamoDB. |
+| Stream | A single global public feed. It is exposed as `/api/stream` and computed by reading posts ordered by creation time. No separate stream table is required because there is only one stream. |
+
+This keeps identity in Auth0, keeps posts in the application storage layer, and keeps the global stream as a REST resource.
 
 ## Repository Structure
 
 ```text
 .
-├── docker-compose.yml
-├── .env.example
-├── frontend/                    # React + Vite SPA (served with nginx in Docker)
-│   ├── Dockerfile
-│   ├── nginx.conf
-│   └── src/
-├── monolith/
-│   └── TwitterBackend/          # Spring Boot monolith
-│       ├── Dockerfile
-│       └── src/main/java/edu/eci/co/
-│           ├── config/
-│           ├── controller/
-│           ├── service/
-│           ├── repository/
-│           ├── entity/
-│           └── dto/
-├── serverless/                  # Future phase
-└── docs/
+|-- docker-compose.yml
+|-- .env.example
+|-- frontend/                         # React + Vite SPA
+|-- monolith/
+|   `-- TwitterBackend/               # Spring Boot monolith
+`-- serverless/
+    |-- template.yaml                 # AWS SAM infrastructure
+    |-- pom.xml                       # Maven multi-module build
+    |-- shared/                       # Shared DTOs and helper utilities
+    |-- user-service/                 # GET /api/me Lambda
+    |-- post-service/                 # POST /api/posts Lambda
+    `-- stream-service/               # GET /api/posts and GET /api/stream Lambda
 ```
 
-## Backend (Spring Boot Monolith)
+## Spring Boot Monolith
 
-**Path:** `monolith/TwitterBackend`
-
-Key points:
-- Exposes API on port `8080`
-- Public endpoints: `GET /api/posts`, `GET /api/stream`
-- Protected endpoints:
-  - `POST /api/posts` requires `write:posts`
-  - `GET /api/me` requires `read:profile`
-- Auth0 JWT validation through:
-  - `AUTH0_ISSUER_URI`
-  - `AUTH0_AUDIENCE`
-- CORS configured via `APP_CORS_ALLOWED_ORIGINS`
-- Supports H2 (default) and PostgreSQL (runtime driver included)
-
-## Frontend (React + Vite)
-
-**Path:** `frontend`
-
-Key points:
-- Served on port `5173` (mapped to nginx container port `80`)
-- Uses Auth0 SPA integration
-- Calls backend through `/api/*`
-- In Docker, nginx proxies `/api` to `backend:8080`
-- SPA fallback is enabled in nginx (`try_files ... /index.html`)
-
-## Run on Another PC with Docker (Recommended)
-
-### 1. Prerequisites
-
-- Docker Engine / Docker Desktop
-- Docker Compose
-- Git
-
-### 2. Clone and prepare environment file
+Path:
 
 ```bash
-git clone https://github.com/Juan-cely-l/-Twitter-like-Application.git
-cd -Twitter-like-Application
+monolith/TwitterBackend
+```
+
+Main characteristics:
+
+- Java 21 and Spring Boot 3.4.
+- Spring Security OAuth2 Resource Server.
+- Auth0 JWT issuer and audience validation.
+- JPA persistence with H2 by default and PostgreSQL available through Docker Compose.
+- OpenAPI documentation through Swagger UI.
+
+Monolith endpoints:
+
+| Endpoint | Method | Access |
+| --- | --- | --- |
+| `/api/posts` | GET | Public |
+| `/api/stream` | GET | Public |
+| `/api/posts` | POST | JWT with `write:posts` |
+| `/api/me` | GET | JWT with `read:profile` |
+
+Swagger UI:
+
+```text
+http://localhost:8080/swagger-ui.html
+```
+
+## Serverless Microservices
+
+Path:
+
+```bash
+serverless
+```
+
+The serverless implementation uses Java Lambda handlers instead of Spring Boot applications. This is the natural AWS Lambda migration because API Gateway handles HTTP routing and JWT authorization, while each Lambda owns one small business capability.
+
+### user-service
+
+Endpoint:
+
+```http
+GET /api/me
+```
+
+Responsibility:
+
+- Requires a valid Auth0 JWT with `read:profile`.
+- Reads the authenticated user claims provided by API Gateway.
+- Returns `sub`, `name`, `nickname`, and `email`.
+
+Main handler:
+
+```text
+serverless/user-service/src/main/java/edu/eci/co/users/UserHandler.java
+```
+
+### post-service
+
+Endpoint:
+
+```http
+POST /api/posts
+```
+
+Responsibility:
+
+- Requires a valid Auth0 JWT with `write:posts`.
+- Validates that the post content is not blank.
+- Enforces the 140-character limit.
+- Stores the post in DynamoDB.
+- Returns the created post.
+
+Main handler:
+
+```text
+serverless/post-service/src/main/java/edu/eci/co/posts/CreatePostHandler.java
+```
+
+### stream-service
+
+Endpoints:
+
+```http
+GET /api/posts
+GET /api/stream
+```
+
+Responsibility:
+
+- Publicly reads the global stream.
+- Queries DynamoDB by the fixed `streamId` value `global`.
+- Returns posts ordered by creation time descending.
+
+Main handler:
+
+```text
+serverless/stream-service/src/main/java/edu/eci/co/stream/GetStreamHandler.java
+```
+
+## Serverless Data Model
+
+The AWS phase uses a DynamoDB table created by `serverless/template.yaml`.
+
+| Attribute | Purpose |
+| --- | --- |
+| `streamId` | Partition key. Always `global` for the single public stream. |
+| `postKey` | Sort key. Combines `createdAt` and `postId` for descending feed reads and uniqueness. |
+| `postId` | Public post identifier. |
+| `content` | Post text, limited to 140 characters. |
+| `authorId` | Auth0 subject from the JWT. |
+| `authorName` | Display name resolved from Auth0 claims. |
+| `createdAt` | UTC creation timestamp. |
+
+## Auth0 Security
+
+Auth0 configuration required by both phases:
+
+| Auth0 item | Required value |
+| --- | --- |
+| SPA application | Used by the React frontend. |
+| API audience | `https://twitter-like-api` or the value configured in the project environment. |
+| Issuer | `https://YOUR-DOMAIN.auth0.com/` |
+| Scopes | `write:posts`, `read:profile`, and optionally `read:posts`. |
+
+The monolith validates JWTs with Spring Security. The serverless phase validates JWTs at API Gateway through the SAM HTTP API JWT authorizer.
+
+Protected serverless routes:
+
+| Endpoint | Required scope |
+| --- | --- |
+| `POST /api/posts` | `write:posts` |
+| `GET /api/me` | `read:profile` |
+
+Public serverless routes:
+
+| Endpoint | Access |
+| --- | --- |
+| `GET /api/posts` | Public |
+| `GET /api/stream` | Public |
+
+## Frontend
+
+Path:
+
+```bash
+frontend
+```
+
+Main characteristics:
+
+- React 19 and Vite.
+- Auth0 React SDK.
+- Login and logout.
+- Silent token retrieval through the Auth0 SDK.
+- Public feed reading.
+- Authenticated post creation.
+- Authenticated `/api/me` request.
+
+Important build-time variables:
+
+```env
+VITE_AUTH0_DOMAIN=your-tenant.us.auth0.com
+VITE_AUTH0_CLIENT_ID=your_auth0_spa_client_id
+VITE_AUTH0_AUDIENCE=https://twitter-like-api
+VITE_API_BASE_URL=https://your-api-gateway-url
+```
+
+For the Docker Compose monolith flow, `VITE_API_BASE_URL` can stay empty so nginx proxies `/api` to the backend container. For the AWS serverless flow, set `VITE_API_BASE_URL` to the API Gateway output URL.
+
+## Environment Variables
+
+Copy the example file before running locally:
+
+```bash
 cp .env.example .env
 ```
 
-### 3. Configure `.env`
-
-Update `.env` with your Auth0 values (minimum required):
+Minimum local values:
 
 ```env
 VITE_AUTH0_DOMAIN=your-tenant.us.auth0.com
@@ -89,67 +267,28 @@ VITE_AUTH0_CLIENT_ID=your_auth0_spa_client_id
 VITE_AUTH0_AUDIENCE=https://twitter-like-api
 AUTH0_ISSUER_URI=https://your-tenant.us.auth0.com/
 AUTH0_AUDIENCE=https://twitter-like-api
+APP_CORS_ALLOWED_ORIGINS=http://localhost:5173
 ```
 
-Full variable reference:
+Do not commit real Auth0 secrets or local `.env` files.
 
-| Variable | Used by | Required | Default | Purpose |
-| --- | --- | --- | --- | --- |
-| `VITE_AUTH0_DOMAIN` | Frontend build | Yes | - | Auth0 tenant domain for SPA login |
-| `VITE_AUTH0_CLIENT_ID` | Frontend build | Yes | - | Auth0 SPA client ID |
-| `VITE_AUTH0_AUDIENCE` | Frontend build | Yes | - | API audience requested by SPA |
-| `VITE_API_BASE_URL` | Frontend build | No | empty | Keep empty to use nginx proxy (`/api`) |
-| `AUTH0_ISSUER_URI` | Backend runtime | Yes | project demo value | JWT issuer for resource server |
-| `AUTH0_AUDIENCE` | Backend runtime | Yes | project demo value | JWT audience expected by backend |
-| `APP_CORS_ALLOWED_ORIGINS` | Backend runtime | No | `http://localhost:5173` | Allowed browser origins |
-| `FRONTEND_PORT` | Docker Compose | No | `5173` | Host port for frontend |
-| `BACKEND_PORT` | Docker Compose | No | `8080` | Host port for backend |
-| `POSTGRES_DB` | PostgreSQL profile | No | `twitterdb` | Database name |
-| `POSTGRES_USER` | PostgreSQL profile | No | `twitter` | Database user |
-| `POSTGRES_PASSWORD` | PostgreSQL profile | No | `twitter` | Database password |
-| `POSTGRES_PORT` | PostgreSQL profile | No | `5432` | Host port for PostgreSQL |
-| `SPRING_DATASOURCE_URL` | Backend runtime | No | H2 memory URL | Set only when using PostgreSQL |
-| `SPRING_DATASOURCE_DRIVER_CLASS_NAME` | Backend runtime | No | `org.h2.Driver` | Set `org.postgresql.Driver` for PostgreSQL |
-| `SPRING_DATASOURCE_USERNAME` | Backend runtime | No | `sa` | Datasource username |
-| `SPRING_DATASOURCE_PASSWORD` | Backend runtime | No | empty | Datasource password |
-| `SPRING_JPA_HIBERNATE_DDL_AUTO` | Backend runtime | No | `update` | Schema strategy |
+## Local Development With Docker
 
-Important notes to avoid confusion:
-- `VITE_*` variables are used at **frontend build time**. If you change any `VITE_*` value, run Docker again with `--build`.
-- Keep `VITE_API_BASE_URL=` empty to use nginx reverse proxy (`/api -> backend`).
-- `APP_CORS_ALLOWED_ORIGINS` controls allowed browser origins for backend CORS.
-
-### 4. Build and start all services
+Build and run the monolith and frontend:
 
 ```bash
 docker compose up --build
 ```
 
-Detached mode:
+Access:
 
-```bash
-docker compose up --build -d
+```text
+Frontend: http://localhost:5173
+Backend API: http://localhost:8080
+Swagger UI: http://localhost:8080/swagger-ui.html
 ```
 
-### 5. Access the application
-
-- Frontend: `http://localhost:5173`
-- Backend API: `http://localhost:8080`
-- Swagger UI: `http://localhost:8080/swagger-ui.html`
-
-### 6. Stop services
-
-```bash
-docker compose down
-```
-
-### 7. Optional: run with PostgreSQL profile
-
-By default, the project uses H2 for fast demo/development.
-
-To use PostgreSQL:
-1. Uncomment and set `SPRING_DATASOURCE_*` values in `.env` (already provided as examples).
-2. Start with PostgreSQL profile:
+Run with PostgreSQL:
 
 ```bash
 docker compose --profile postgres up --build
@@ -157,14 +296,14 @@ docker compose --profile postgres up --build
 
 ## Local Development Without Docker
 
-### Backend
+Backend:
 
 ```bash
 cd monolith/TwitterBackend
 mvn spring-boot:run
 ```
 
-### Frontend
+Frontend:
 
 ```bash
 cd frontend
@@ -172,107 +311,131 @@ npm ci
 npm run dev
 ```
 
-## AWS S3 Static Website Deployment Evidence
+## Build And Deploy The Serverless Phase
 
-The frontend was prepared as a static Vite build and uploaded to an Amazon S3 bucket configured for static website hosting. The backend is intentionally kept local for this delivery, because the assignment requires the frontend to be publicly available on S3 but does not require backend deployment.
+Prerequisites:
 
-| Item | Value |
-| --- | --- |
-| Static frontend hosting | Amazon S3 Static Website Hosting |
-| S3 website endpoint | `http://twitter-like-frontend-arep.s3-website-us-east-1.amazonaws.com` |
-| Local backend URL | `http://localhost:8080` |
-| Swagger UI | `http://localhost:8080/swagger-ui.html` |
-| Auth0 API audience | `https://twitter-like-api` |
+- Java 21.
+- Maven.
+- AWS CLI configured for the target account.
+- AWS SAM CLI.
+- Auth0 tenant and API configured with the expected audience and scopes.
 
-### S3 Bucket Configuration
+Build the Lambda artifacts:
 
-The S3 bucket `twitter-like-frontend-arep` was created to host the frontend static assets generated by the Vite production build.
+```bash
+mvn -f serverless/pom.xml clean package
+```
 
-![S3 bucket overview](Assets/S3bucket1.png)
+Build the SAM application:
 
-Static website hosting was enabled in the bucket properties. The website entry point is `index.html`, which allows the React single page application to be served from the S3 website endpoint.
+```bash
+sam build --template-file serverless/template.yaml
+```
 
-![S3 static website hosting enabled](Assets/s3BucketconStaticWebsiteHostinghabilitado.png)
+Deploy:
 
-### Public Frontend Result
+```bash
+sam deploy --guided \
+  --parameter-overrides \
+  Auth0Issuer=https://your-tenant.us.auth0.com/ \
+  Auth0Audience=https://twitter-like-api \
+  AllowedCorsOrigin=https://your-frontend-origin \
+  Auth0ClaimsNamespace=https://twitter-like-app.example.com
+```
 
-The uploaded frontend is publicly reachable through the S3 website endpoint. The frontend build is configured to call the local backend at `http://localhost:8080`, which matches the current assignment scope where only the frontend is deployed publicly.
+After deployment, use the `ApiUrl` output as the frontend `VITE_API_BASE_URL` and rebuild the frontend.
 
-![Frontend served from S3](Assets/Frontend1.png)
+## Frontend Deployment To S3
 
-### Local Backend Evidence
+Build the frontend for the deployed API:
 
-The Spring Boot monolith runs locally on port `8080`. Public endpoints such as `GET /api/posts` can be used without authentication, while protected endpoints require a valid Auth0 JWT access token and the expected scopes.
+```bash
+cd frontend
+npm ci
+npm run build
+```
 
-![Backend running on port 8080](Assets/Backend8080.png)
+Upload `frontend/dist` to an S3 bucket configured for static website hosting.
 
-### Swagger and API Documentation Evidence
+For a production-like Auth0 flow, prefer serving the S3 site through CloudFront with HTTPS. S3 static website endpoints are HTTP-only, and Auth0 browser applications should use secure origins for public deployments.
 
-Swagger UI is available from the local backend and documents the REST API, request and response models, and JWT Bearer security requirements.
+Existing S3 deployment evidence is kept in the `Assets/` directory:
 
-![Swagger UI overview](Assets/swagger1.png)
+```text
+Assets/S3bucket1.png
+Assets/s3BucketconStaticWebsiteHostinghabilitado.png
+Assets/Frontend1.png
+Assets/ErrorBucketS3.png
+Assets/sam_validate_template.png
+Assets/sam_deploy_Created_Failed_AWS_IAM_Role.png
+```
 
-The API documentation includes the public post stream endpoints and the protected post creation endpoint.
+SAM deployment limitation evidence (VocLabs IAM restrictions):
 
-![Swagger posts endpoint documentation](Assets/Swagger2.png)
+![SAM template validation](Assets/sam_validate_template.png)
+![SAM deploy failure due to IAM role creation restriction](Assets/sam_deploy_Created_Failed_AWS_IAM_Role.png)
 
-The protected user profile endpoint `GET /api/me` is also documented and requires a valid JWT with the expected profile scope.
+## Testing And Validation
 
-![Swagger protected endpoint documentation](Assets/Swagger3.png)
-
-## CloudFront HTTPS Mitigation
-
-Amazon S3 Static Website Hosting exposes the site through an HTTP endpoint. This is enough to make the frontend publicly accessible, but it creates an important limitation for Auth0: the Auth0 React SDK uses the SPA flow with PKCE and requires a secure browser origin. In modern browsers, a public HTTP S3 website endpoint is not considered a secure origin.
-
-The correct mitigation is to place Amazon CloudFront in front of the S3 static website and serve the same frontend through HTTPS. The intended CloudFront setup is:
-
-| Setting | Intended value |
-| --- | --- |
-| Origin | `twitter-like-frontend-arep.s3-website-us-east-1.amazonaws.com` |
-| Viewer protocol policy | Redirect HTTP to HTTPS |
-| Default root object | `index.html` |
-| Custom error response `403` | `/index.html` with HTTP `200` |
-| Custom error response `404` | `/index.html` with HTTP `200` |
-| Auth0 callback/logout/web origin | `https://<cloudfront-distribution-domain>` |
-| Backend CORS origin | `https://<cloudfront-distribution-domain>` |
-
-CloudFront distribution creation was attempted, but the AWS VocLabs role assigned to the account does not include the required `cloudfront:CreateDistribution` permission. Because this is an identity-based permission restriction, it cannot be solved from the application code or S3 configuration.
-
-![CloudFront permission limitation](Assets/ErrorBucketS3.png)
-
-If CloudFront permissions are enabled by the lab environment, the same uploaded S3 frontend can be served through HTTPS without changing the application source code. The Auth0 application settings and backend `APP_CORS_ALLOWED_ORIGINS` value must then be updated to include the CloudFront HTTPS domain.
-
-## API Summary
-
-| Endpoint | Method | Access |
-| --- | --- | --- |
-| `/api/posts` | GET | Public |
-| `/api/stream` | GET | Public |
-| `/api/posts` | POST | JWT + `write:posts` |
-| `/api/me` | GET | JWT + `read:profile` |
-
-## Testing and Validation
-
-### Backend tests
+Run monolith integration tests:
 
 ```bash
 cd monolith/TwitterBackend
 mvn test
 ```
 
-Current integration suite coverage includes:
-- 15 integration tests
-- Security and scope enforcement
-- Validation constraints (including 140-char limit)
-- Functional persistence behavior
-
-### Frontend checks
+Run frontend checks:
 
 ```bash
 cd frontend
-npm run build
 npm run lint
+npm run build
 ```
+
+Build serverless services:
+
+```bash
+mvn -f serverless/pom.xml clean package
+```
+
+Recommended end-to-end checks after AWS deployment:
+
+```bash
+curl https://your-api-gateway-url/api/posts
+curl https://your-api-gateway-url/api/stream
+curl -H "Authorization: Bearer ACCESS_TOKEN" https://your-api-gateway-url/api/me
+curl -X POST https://your-api-gateway-url/api/posts \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"Hello from Lambda"}'
+```
+
+Also verify that `POST /api/posts` fails without a token and fails with a token that does not include `write:posts`.
+
+## Assignment Coverage
+
+| Requirement | Current implementation |
+| --- | --- |
+| Spring Boot monolith | Implemented in `monolith/TwitterBackend`. |
+| REST API for 140-character posts | Implemented in the monolith and migrated to Lambda. |
+| Single public stream | Implemented as `/api/stream` and `/api/posts`. |
+| Swagger/OpenAPI | Implemented in the Spring Boot monolith. |
+| React frontend | Implemented in `frontend`. |
+| Auth0 SPA integration | Implemented with Auth0 React SDK. |
+| Auth0 Resource Server security | Implemented in the monolith and modeled in API Gateway for serverless. |
+| Protected `/api/me` | Implemented in the monolith and in `user-service`. |
+| Three microservices | Implemented under `serverless/user-service`, `serverless/post-service`, and `serverless/stream-service`. |
+| AWS Lambda deployment | Defined in `serverless/template.yaml` through AWS SAM. |
+| API Gateway | Defined in `serverless/template.yaml`. |
+| DynamoDB persistence for serverless | Defined in `serverless/template.yaml`. |
+| S3 static frontend | Frontend is buildable for S3; existing deployment evidence is in `Assets/`. |
+
+## Environment Limitation
+
+AWS deployment could not be completed due to AWS Academy (VocLabs) restrictions, specifically missing permissions to execute `iam:CreateRole`.
+
+The project is fully functional locally and ready to be deployed in an AWS account without those restrictions.
 
 ## License
 
