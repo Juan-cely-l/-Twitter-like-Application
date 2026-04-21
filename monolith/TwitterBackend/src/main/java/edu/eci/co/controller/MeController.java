@@ -1,5 +1,10 @@
 package edu.eci.co.controller;
 
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 import edu.eci.co.dto.MeResponse;
 import edu.eci.co.exception.ApiError;
 import io.swagger.v3.oas.annotations.Operation;
@@ -9,10 +14,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @Tag(name = "Profile", description = "Authenticated profile operations")
@@ -45,9 +46,18 @@ public class MeController {
     public MeResponse me (@AuthenticationPrincipal Jwt jwt){
         return new MeResponse(
                 jwt.getSubject(),
-                jwt.getClaimAsString(NS + "/name"),
-                jwt.getClaimAsString(NS + "/nickname"),
-                jwt.getClaimAsString(NS + "/email")
+                                firstNonBlank(jwt.getClaimAsString(NS + "/name"), jwt.getClaimAsString("name")),
+                                firstNonBlank(jwt.getClaimAsString(NS + "/nickname"), jwt.getClaimAsString("nickname")),
+                                firstNonBlank(jwt.getClaimAsString(NS + "/email"), jwt.getClaimAsString("email"))
         );
     }
+
+        private String firstNonBlank(String... values) {
+                for (String value : values) {
+                        if (value != null && !value.isBlank()) {
+                                return value;
+                        }
+                }
+                return null;
+        }
 }

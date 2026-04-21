@@ -17,11 +17,28 @@ public class CreatePostRequest {
     )
     private String content;
 
+        @Size(max = 120)
+        @Schema(
+            description = "Optional display name sent by the frontend. Used only when profile claims are not present in the access token.",
+            example = "Roger Rodriguez",
+            maxLength = 120,
+            requiredMode = Schema.RequiredMode.NOT_REQUIRED
+        )
+        private String authorName;
+
     public String getContent() {
         return content;
     }
 
     public void setContent(String content) {
         this.content = content;
+    }
+
+    public String getAuthorName() {
+        return authorName;
+    }
+
+    public void setAuthorName(String authorName) {
+        this.authorName = authorName;
     }
 }

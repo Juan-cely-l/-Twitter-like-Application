@@ -19,7 +19,7 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: ${AUTH0_ISSUER_URI:https://dev-evyrhl30mk03e5xh.us.auth0.com/}
+          issuer-uri: ${AUTH0_ISSUER_URI:https://dev-qrd0t00hkulitozr.us.auth0.com/}
           audiences: ${AUTH0_AUDIENCE:https://twitter-like-api}
 
 app:

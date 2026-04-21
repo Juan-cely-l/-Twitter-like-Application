@@ -2,6 +2,10 @@
 
 A simplified Twitter-like application where authenticated users can publish short posts, up to 140 characters, into a single public feed.
 
+## Video Demonstration
+
+- Full demo: https://youtu.be/_mGzmxOVIpo
+
 The project is organized as a monorepo with two backend phases:
 
 - A Spring Boot monolith used as the initial implementation.

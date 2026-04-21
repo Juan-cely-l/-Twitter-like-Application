@@ -1,5 +1,16 @@
 package edu.eci.co.controller;
 
+import java.util.List;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 import edu.eci.co.dto.CreatePostRequest;
 import edu.eci.co.dto.PostResponse;
 import edu.eci.co.exception.ApiError;
@@ -13,12 +24,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 
 @RestController
@@ -112,8 +117,12 @@ public class PostController {
         String authorId= jwt.getSubject();
         String authorName = firstNonBlank(
                 jwt.getClaimAsString(NS + "/name"),
+                jwt.getClaimAsString("name"),
                 jwt.getClaimAsString(NS + "/nickname"),
+                jwt.getClaimAsString("nickname"),
                 jwt.getClaimAsString(NS + "/email"),
+                jwt.getClaimAsString("email"),
+                request.getAuthorName(),
                 jwt.getSubject()
         );
 

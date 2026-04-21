@@ -94,7 +94,6 @@ Resources:
     Properties:
       CodeUri: post-service/target/post-service-1.0.0-aws.jar
       Handler: edu.eci.co.posts.CreatePostHandler::handleRequest
-      Role: arn:aws:iam::803761177923:role/service-role/AWSLambdaBasicExecutionRole
       Events:
         CreatePostApi:
           Type: HttpApi
@@ -112,7 +111,6 @@ Resources:
     Properties:
       CodeUri: stream-service/target/stream-service-1.0.0-aws.jar
       Handler: edu.eci.co.stream.GetStreamHandler::handleRequest
-      Role: arn:aws:iam::803761177923:role/service-role/AWSLambdaBasicExecutionRole
       Events:
         GetPostsApi:
           Type: HttpApi

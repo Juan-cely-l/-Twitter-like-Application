@@ -45,7 +45,7 @@ export default function PostForm({ isAuthenticated, onPostCreated }) {
         scope: 'write:posts',
       });
       if (!token) return;
-      await createPost(token, content.trim());
+      await createPost(token, content.trim(), displayName);
       setContent('');
       setSuccess('Post publicado correctamente.');
       await onPostCreated();

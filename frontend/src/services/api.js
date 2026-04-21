@@ -1,4 +1,4 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const API_BASE_URL = 'http://localhost:8080';
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, options);
@@ -24,13 +24,13 @@ export function getMe(accessToken) {
   });
 }
 
-export function createPost(accessToken, content) {
+export function createPost(accessToken, content, authorName) {
   return request('/api/posts', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, authorName }),
   });
 }
