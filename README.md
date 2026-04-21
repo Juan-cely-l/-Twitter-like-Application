@@ -6,6 +6,11 @@ A simplified Twitter-like application where authenticated users can publish shor
 
 - Full demo: https://youtu.be/_mGzmxOVIpo
 
+## Authors
+
+- Roger Alexander Rodriguez Abril
+- Juan Esteban Cely
+
 The project is organized as a monorepo with two backend phases:
 
 - A Spring Boot monolith used as the initial implementation.
